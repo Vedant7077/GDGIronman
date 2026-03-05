@@ -12,11 +12,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const timerDisplay = document.getElementById('timer-display');
     
     let isTerminalOpen = false;
-    
+    let hasSubmitted = false; // User can only submit once per problem
+
     // Timer configuration - uses timer-config.js
     const TIMER_DURATION = (window.TIMER_CONFIG && window.TIMER_CONFIG.STAGE_1_DURATION) || 60; // Default 1 minute for testing
+    const TIMER_STORAGE_KEY = 'gdg_editor_stage1_start';
     let timeRemaining = TIMER_DURATION;
     let timerInterval = null;
+
+    // Get or init timer start - persists across reloads to prevent malpractice
+    function getOrInitTimerStart() {
+        const stored = sessionStorage.getItem(TIMER_STORAGE_KEY);
+        if (stored) {
+            const startTime = parseInt(stored, 10);
+            const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+            const remaining = Math.max(0, TIMER_DURATION - elapsedSec);
+            return { startTime, timeRemaining: remaining };
+        }
+        const startTime = Date.now();
+        sessionStorage.setItem(TIMER_STORAGE_KEY, String(startTime));
+        return { startTime, timeRemaining: TIMER_DURATION };
+    }
     
     // Backend API configuration - uses api-config.js when available
     const API_BASE_URL = (window.API_CONFIG && window.API_CONFIG.BASE_URL) || 'http://127.0.0.1:8000';
@@ -58,18 +74,166 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Store current problem data
     let currentProblem = null;
+
+    // Map editor language select value to API schema keys (c, cpp, java, python, javascript)
+    function getLangKeyForSchema(lang) {
+        const map = { 'python': 'python', 'java': 'java', 'js': 'javascript', 'javascript': 'javascript', 'cpp': 'cpp', 'c': 'c' };
+        return map[lang] || 'javascript';
+    }
+
+    // Get preCode for Judge0: the code that runs BEFORE user's solution (from pre_code schema).
+    // Only used when pre_code has Boiler_code nested - top-level c/cpp/java/python/javascript is the "pre" part.
+    // When no Boiler_code, editor shows pre_code directly, so we don't prepend again.
+    function getPreCode(lang) {
+        if (!currentProblem || !currentProblem.pre_code) return '';
+        const langKey = getLangKeyForSchema(lang);
+        const pre = currentProblem.pre_code;
+        if (Array.isArray(pre) && pre.length > 0) {
+            const first = pre[0];
+            if (!first) return '';
+            if (first.Boiler_code && Array.isArray(first.Boiler_code) && first.Boiler_code.length > 0) {
+                if (typeof first[langKey] === 'string') return first[langKey].trim();
+            }
+        }
+        return '';
+    }
+
+    // Get postCode for Judge0: the code that runs AFTER user's solution (from post_code schema)
+    function getPostCode(lang) {
+        if (!currentProblem || !currentProblem.post_code) return '';
+        const langKey = getLangKeyForSchema(lang);
+        const post = currentProblem.post_code;
+        if (Array.isArray(post) && post.length > 0) {
+            const first = post[0];
+            if (first && typeof first[langKey] === 'string') return first[langKey].trim();
+        } else if (typeof post === 'object' && post[langKey]) {
+            return String(post[langKey]).trim();
+        }
+        return '';
+    }
+
+    // Build full code for Judge0: Precode + "\n" + User code + "\n" + Post code
+    function buildFullCodeForJudge0(userCode, lang) {
+        const pre = getPreCode(lang);
+        const post = getPostCode(lang);
+        const parts = [];
+        if (pre) parts.push(pre);
+        parts.push(userCode || '');
+        if (post) parts.push(post);
+        return parts.join('\n');
+    }
     
+    // Format problem description with proper structure, line breaks, and section styling
+    function formatProblemDescription(text) {
+        if (!text || typeof text !== 'string') return '';
+        const escaped = (s) => {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        };
+
+        const sectionPatterns = [
+            /^📥\s*Input\b/im, /^📤\s*Output\b/im, /^📌\s*Example\b/im,
+            /^🧩\s*Constraints?\b/im, /^❌\s*Invalid/im,
+            /^Input:\s*$/im, /^Output:\s*$/im, /^Example\s*\d*:?\s*$/im,
+            /^Constraints?\s*$/im, /^Explanation:\s*$/im,
+        ];
+        const isSectionHeader = (s) => sectionPatterns.some(p => p.test(s.trim()));
+
+        const lines = text.split(/\r?\n/);
+        const blocks = [];
+        let i = 0;
+
+        while (i < lines.length) {
+            const trimmed = lines[i].trim();
+            if (trimmed === '') { i++; continue; }
+
+            if (isSectionHeader(trimmed)) {
+                const headerClass = /^❌/.test(trimmed) ? 'text-red-400' : 'text-stark-blue';
+                blocks.push(`<h4 class="${headerClass} font-semibold text-xs uppercase tracking-wider mt-4 mb-1.5 first:mt-0">${escaped(trimmed)}</h4>`);
+                i++;
+                const contentLines = [];
+                while (i < lines.length && lines[i].trim() !== '' && !isSectionHeader(lines[i].trim())) {
+                    contentLines.push(lines[i]);
+                    i++;
+                }
+                if (contentLines.length > 0) {
+                    const content = contentLines.join('\n').trim();
+                    const bulletItems = content.split(/\n(?=[\-\*•])/).filter(Boolean);
+                    const isBulletList = bulletItems.length > 0 && bulletItems.every(item => /^[\-\*•]\s/.test(item.trim()));
+                    if (isBulletList) {
+                        blocks.push('<ul class="list-disc list-inside space-y-1 my-2 ml-3 text-slate-300">' +
+                            bulletItems.map(item => `<li>${escaped(item.replace(/^[\-\*•]\s*/, '').trim())}</li>`).join('') + '</ul>');
+                    } else {
+                        const formatted = escaped(content).replace(/\n/g, '<br>');
+                        blocks.push(`<div class="mb-2 ml-0 text-slate-300 leading-relaxed">${formatted}</div>`);
+                    }
+                }
+                continue;
+            }
+
+            const contentLines = [];
+            while (i < lines.length && lines[i].trim() !== '' && !isSectionHeader(lines[i].trim())) {
+                contentLines.push(lines[i]);
+                i++;
+            }
+            const content = contentLines.join('\n').trim();
+            const bulletItems = content.split(/\n(?=[\-\*•])/).filter(Boolean);
+            const isBulletList = bulletItems.length > 0 && bulletItems.every(item => /^[\-\*•]\s/.test(item.trim()));
+            if (isBulletList) {
+                blocks.push('<ul class="list-disc list-inside space-y-1 my-2 ml-3 text-slate-300">' +
+                    bulletItems.map(item => `<li>${escaped(item.replace(/^[\-\*•]\s*/, '').trim())}</li>`).join('') + '</ul>');
+            } else {
+                const formatted = escaped(content).replace(/\n/g, '<br>');
+                blocks.push(`<div class="my-2 leading-relaxed text-slate-300">${formatted}</div>`);
+            }
+        }
+
+        return blocks.join('');
+    }
+
     // Get problem_id from URL parameters or use default
     function getProblemIdFromURL() {
         const urlParams = new URLSearchParams(window.location.search);
         const problemId = urlParams.get('problem_id');
         return problemId ? parseInt(problemId) : 1; // Default to problem 1
     }
+
+    // Check if user has already submitted for this problem (one submission per problem per team)
+    function getSubmissionStorageKey() {
+        const teamName = sessionStorage.getItem('teamName') || 'guest';
+        const problemId = currentProblem?.problem_id ?? getProblemIdFromURL();
+        return `gdg_submitted_${teamName}_${problemId}`;
+    }
+
+    function hasAlreadySubmitted() {
+        return sessionStorage.getItem(getSubmissionStorageKey()) === 'true';
+    }
+
+    function markAsSubmitted() {
+        hasSubmitted = true;
+        sessionStorage.setItem(getSubmissionStorageKey(), 'true');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            submitBtn.innerHTML = '<span class="material-icons-round text-[12px]">check_circle</span><span class="hidden sm:inline">SUBMITTED</span>';
+        }
+    }
+
+    function updateSubmitButtonState() {
+        if (!submitBtn) return;
+        if (hasAlreadySubmitted()) {
+            hasSubmitted = true;
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            submitBtn.innerHTML = '<span class="material-icons-round text-[12px]">check_circle</span><span class="hidden sm:inline">SUBMITTED</span>';
+        }
+    }
     
     // Fetch problem data from backend
     async function fetchProblem(problemId) {
         try {
-            const response = await fetch(`${API_BASE_URL}/problem/${5}`);
+            const response = await fetch(`${API_BASE_URL}/problem/${14}`);
             if (!response.ok) {
                 throw new Error(`Failed to fetch problem: ${response.statusText}`);
             }
@@ -104,10 +268,10 @@ document.addEventListener('DOMContentLoaded', () => {
             scoreBadge.textContent = `SCORE: ${problem.score}`;
         }
         
-        // Update description
+        // Update description with structured formatting
         const descriptionElement = document.getElementById('problem-description');
         if (descriptionElement && problem.description) {
-            descriptionElement.textContent = problem.description;
+            descriptionElement.innerHTML = formatProblemDescription(problem.description);
         }
         
         // Update test cases
@@ -189,29 +353,35 @@ document.addEventListener('DOMContentLoaded', () => {
             // This will be used when submitting the solution
         }
         
-        // Handle pre_code if available (starter code)
-        if (problem.pre_code) {
-            // pre_code can be a string or object with language keys
-            if (typeof problem.pre_code === 'string' && codeInput) {
-                codeInput.value = problem.pre_code;
-                updateLineNumbers();
-            } else if (typeof problem.pre_code === 'object' && codeInput) {
-                const currentLang = langSelect ? langSelect.value : 'js';
-                const langMap = {
-                    'python': 'python',
-                    'java': 'java',
-                    'js': 'javascript',
-                    'javascript': 'javascript',
-                    'cpp': 'cpp',
-                    'c': 'c'
-                };
-                const langKey = langMap[currentLang] || 'javascript';
-                if (problem.pre_code[langKey]) {
-                    codeInput.value = problem.pre_code[langKey];
-                    updateLineNumbers();
+        // Handle pre_code / Boiler_code if available (starter code for editor)
+        if (problem.pre_code && codeInput) {
+            const currentLang = langSelect ? langSelect.value : 'js';
+            const langKey = getLangKeyForSchema(currentLang);
+            let starterCode = '';
+
+            if (typeof problem.pre_code === 'string') {
+                starterCode = problem.pre_code;
+            } else if (Array.isArray(problem.pre_code) && problem.pre_code.length > 0) {
+                const first = problem.pre_code[0];
+                // If pre_code has Boiler_code nested, use that for the editor (user fills this part)
+                if (first.Boiler_code && Array.isArray(first.Boiler_code) && first.Boiler_code.length > 0) {
+                    const boiler = first.Boiler_code[0];
+                    starterCode = (boiler && boiler[langKey]) ? boiler[langKey] : '';
+                } else if (first[langKey]) {
+                    starterCode = first[langKey];
                 }
+            } else if (typeof problem.pre_code === 'object' && problem.pre_code[langKey]) {
+                starterCode = problem.pre_code[langKey];
+            }
+
+            if (starterCode) {
+                codeInput.value = starterCode;
+                updateLineNumbers();
             }
         }
+
+        // Disable submit button if user has already submitted for this problem
+        updateSubmitButtonState();
     }
     
     // Initialize problem loading
@@ -304,30 +474,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Language selection handler
+    // Language selection handler - switch editor to Boiler_code / pre_code for new language
     if (langSelect) {
         langSelect.addEventListener('change', (e) => {
             const lang = e.target.value;
-            // Update syntax highlighting or other language-specific features
             console.log('Language changed to:', lang);
-            
-            // Update post_code if problem is loaded
-            if (currentProblem && currentProblem.post_code && typeof currentProblem.post_code === 'object') {
-                const langMap = {
-                    'python': 'python',
-                    'java': 'java',
-                    'js': 'java', // Based on the API response, post_code has 'java' key
-                    'javascript': 'java',
-                    'cpp': 'cpp',
-                    'c': 'c'
-                };
-                
-                const langKey = langMap[lang] || 'java';
-                if (currentProblem.post_code[langKey]) {
-                    // Get current code without post_code
-                    const currentCode = codeInput.value.trim();
-                    // Replace with new post_code
-                    codeInput.value = currentProblem.post_code[langKey];
+
+            if (currentProblem && currentProblem.pre_code && codeInput) {
+                const langKey = getLangKeyForSchema(lang);
+                let starterCode = '';
+
+                if (Array.isArray(currentProblem.pre_code) && currentProblem.pre_code.length > 0) {
+                    const first = currentProblem.pre_code[0];
+                    if (first.Boiler_code && Array.isArray(first.Boiler_code) && first.Boiler_code.length > 0) {
+                        const boiler = first.Boiler_code[0];
+                        starterCode = (boiler && boiler[langKey]) ? boiler[langKey] : '';
+                    } else if (first[langKey]) {
+                        starterCode = first[langKey];
+                    }
+                } else if (typeof currentProblem.pre_code === 'object' && currentProblem.pre_code[langKey]) {
+                    starterCode = currentProblem.pre_code[langKey];
+                }
+
+                if (starterCode) {
+                    codeInput.value = starterCode;
                     updateLineNumbers();
                 }
             }
@@ -499,8 +669,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         displayTerminalOutput(`Input: ${stdin}`);
                     }
                 }
-                
-                const result = await executeCode(code, language, stdin);
+
+                const fullCode = buildFullCodeForJudge0(code, language);
+                const result = await executeCode(fullCode, language, stdin);
                 
                 // Display results
                 if (result.status && result.status.id === 3) {
@@ -550,10 +721,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Submit button handler - Test against all test cases
+    // Submit button handler - Test against all test cases (one submission per problem)
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
             console.log('Submit Solution clicked');
+            
+            // Check if already submitted (one submission only)
+            if (hasSubmitted || hasAlreadySubmitted()) {
+                displayTerminalOutput('You have already submitted. Only one submission is allowed per problem.', true);
+                return;
+            }
             
             // Check if time is up
             if (timeRemaining <= 0) {
@@ -561,7 +738,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Check if submit button is disabled
+            // Check if submit button is disabled (e.g. TIME UP)
             if (submitBtn.disabled && submitBtn.textContent.includes('TIME UP')) {
                 displayTerminalOutput('Time is up. Submission disabled.', true);
                 return;
@@ -607,7 +784,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     try {
-                        const result = await executeCode(code, language, testCase.input);
+                        const fullCode = buildFullCodeForJudge0(code, language);
+                        const result = await executeCode(fullCode, language, testCase.input);
                         
                         if (result.status && result.status.id === 3) {
                             // Accepted - check if output matches
@@ -717,7 +895,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (submitResult.message) {
                         displayTerminalOutput(`Message: ${submitResult.message}`);
                     }
-                    
+                    markAsSubmitted();
                 } catch (submitError) {
                     displayTerminalOutput(`[FAIL] Submission error: ${submitError.message}`, true);
                     console.error('Submission error:', submitError);
@@ -726,8 +904,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (error) {
                 displayTerminalOutput(`Error: ${error.message}`, true);
             } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalHTML;
+                if (!hasSubmitted) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalHTML;
+                }
             }
         });
     }
@@ -795,8 +975,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 timerDisplay.textContent = '00:00';
                 timerDisplay.className = 'text-sm font-bold text-red-500 tabular-nums';
             }
-            // Disable submit button
-            if (submitBtn) {
+            // Disable submit button (unless already submitted - keep SUBMITTED state)
+            if (submitBtn && !hasSubmitted) {
                 submitBtn.disabled = true;
                 submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 submitBtn.innerHTML = '<span class="material-icons-round text-[12px]">block</span><span class="hidden sm:inline">TIME UP</span>';
@@ -813,12 +993,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (timerInterval) {
             clearInterval(timerInterval);
         }
-        timeRemaining = TIMER_DURATION;
+        const { timeRemaining: remaining } = getOrInitTimerStart();
+        timeRemaining = remaining;
         updateTimer(); // Initial display
         timerInterval = setInterval(updateTimer, 1000); // Update every second
     }
     
-    // Start the timer when page loads
+    // Start the timer when page loads (uses persisted start time if reloaded)
     startTimer();
 
     // Display logged-in team name

@@ -41,6 +41,8 @@
 
         if (!btn) return;
 
+        initRealTimeValidation();
+
         function showUploadStatus() {
             var hasImage = imageInput && imageInput.files && imageInput.files.length > 0;
             var hasWebUrl = webUrl && webUrl.value && webUrl.value.trim().length > 0;
@@ -125,7 +127,41 @@
                     } else {
                         window.UIUtils.setFieldValidation(this, true);
                     }
+                    updateImagePreview();
                 });
+            }
+        }
+
+        var previewObjectUrls = [];
+        function updateImagePreview() {
+            var preview = document.getElementById('image-preview');
+            if (!preview) return;
+            previewObjectUrls.forEach(function (u) { URL.revokeObjectURL(u); });
+            previewObjectUrls = [];
+            var files = imageInput && imageInput.files ? imageInput.files : [];
+            preview.innerHTML = '';
+            if (files.length === 0) {
+                preview.classList.add('hidden');
+                return;
+            }
+            preview.classList.remove('hidden');
+            for (var i = 0; i < files.length; i++) {
+                if (!files[i].type.startsWith('image/')) continue;
+                var url = URL.createObjectURL(files[i]);
+                previewObjectUrls.push(url);
+                var wrap = document.createElement('div');
+                wrap.className = 'relative flex flex-col items-center';
+                var img = document.createElement('img');
+                img.src = url;
+                img.alt = files[i].name;
+                img.className = 'w-20 h-20 object-cover rounded-md border border-white/20 hover:border-hologram/50 transition-all';
+                img.title = files[i].name;
+                wrap.appendChild(img);
+                var label = document.createElement('span');
+                label.className = 'mt-1 text-[10px] text-white/60 truncate max-w-[90px]';
+                label.textContent = files[i].name;
+                wrap.appendChild(label);
+                preview.appendChild(wrap);
             }
         }
 
@@ -312,7 +348,7 @@
                 feedback.innerHTML = '<span class="text-red-500">Time is up. Submission disabled.</span>';
                 feedback.className = 'mb-3 p-4 rounded-lg border border-red-500/50 bg-red-500/5 text-xs font-mono';
             }
-        });
+        }, 'gdg_stage2_start');
 
         stage2Timer.start();
     }

@@ -11,16 +11,28 @@
          * @param {string} stageKey - Stage key from TIMER_CONFIG (e.g., 'STAGE_2_DURATION')
          * @param {HTMLElement} displayEl - Element to display timer (optional)
          * @param {Function} onExpire - Callback when timer expires (optional)
+         * @param {string} [storageKey] - If provided, timer persists across reloads (sessionStorage)
          * @returns {Object} Timer control object { start, stop, reset, getRemaining }
          */
-        init: function (stageKey, displayEl, onExpire) {
+        init: function (stageKey, displayEl, onExpire, storageKey) {
             var config = window.TIMER_CONFIG || {};
             var duration = config[stageKey] || 60;
             var remaining = duration;
             var intervalId = null;
+
+            if (storageKey && typeof sessionStorage !== 'undefined') {
+                var stored = sessionStorage.getItem(storageKey);
+                if (stored) {
+                    var startTime = parseInt(stored, 10);
+                    var elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                    remaining = Math.max(0, duration - elapsedSec);
+                } else {
+                    sessionStorage.setItem(storageKey, String(Date.now()));
+                }
+            }
             var formatTime = window.formatTimerTime || function (secs) {
                 var mins = Math.floor(secs / 60);
-                var s = sec % 60;
+                var s = secs % 60;
                 return (mins < 10 ? '0' : '') + mins + ':' + (s < 10 ? '0' : '') + s;
             };
 
@@ -56,6 +68,14 @@
 
             function start() {
                 if (intervalId) return;
+                if (remaining <= 0) {
+                    if (displayEl) {
+                        displayEl.textContent = '00:00';
+                        displayEl.className = 'text-sm font-bold text-red-500 tabular-nums';
+                    }
+                    if (onExpire) onExpire();
+                    return;
+                }
                 intervalId = setInterval(tick, 1000);
                 updateDisplay();
             }
