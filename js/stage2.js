@@ -8,6 +8,25 @@
     'use strict';
 
     var ROUND_2_ENDPOINT = (window.API_CONFIG && window.API_CONFIG.getUrl('round_2')) || 'http://127.0.0.1:8000/round_2';
+    var STAGE2_STORAGE_KEY = 'gdg_stage2_submission_state';
+
+    function loadStage2State() {
+        try {
+            var raw = sessionStorage.getItem(STAGE2_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            console.warn('Failed to load Stage 2 state:', e);
+            return null;
+        }
+    }
+
+    function saveStage2State(state) {
+        try {
+            sessionStorage.setItem(STAGE2_STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+            console.warn('Failed to save Stage 2 state:', e);
+        }
+    }
 
     /**
      * Initializes the team badge display from sessionStorage.
@@ -38,10 +57,85 @@
         var statusVisual = document.getElementById('status-visual');
         var statusNetwork = document.getElementById('status-network');
         var statusRepository = document.getElementById('status-repository');
+        var savedState = loadStage2State();
 
         if (!btn) return;
 
         initRealTimeValidation();
+
+        function applySavedState() {
+            if (!savedState || !savedState.submitted) return;
+
+            if (webUrl && savedState.hostedLink) {
+                webUrl.value = savedState.hostedLink;
+            }
+            if (repoLink && savedState.gitHubLink) {
+                repoLink.value = savedState.gitHubLink;
+            }
+
+            if (statusVisual) {
+                statusVisual.textContent = savedState.uploadedUrls && savedState.uploadedUrls.length ? 'UPLOADED' : 'PENDING';
+                statusVisual.className = 'terminal-line text-xs tracking-wide ' +
+                    (savedState.uploadedUrls && savedState.uploadedUrls.length ? 'text-ingest-green' : 'text-amber-500');
+            }
+            if (statusNetwork) {
+                statusNetwork.textContent = savedState.hostedLink ? 'UPLOADED' : 'PENDING';
+                statusNetwork.className = 'terminal-line text-xs tracking-wide ' +
+                    (savedState.hostedLink ? 'text-ingest-green' : 'text-amber-500');
+            }
+            if (statusRepository) {
+                statusRepository.textContent = savedState.gitHubLink ? 'UPLOADED' : 'PENDING';
+                statusRepository.className = 'terminal-line text-xs tracking-wide ' +
+                    (savedState.gitHubLink ? 'text-ingest-green' : 'text-amber-500');
+            }
+
+            var preview = document.getElementById('image-preview');
+            if (preview) {
+                preview.innerHTML = '';
+                if (savedState.uploadedUrls && savedState.uploadedUrls.length) {
+                    preview.classList.remove('hidden');
+                    savedState.uploadedUrls.forEach(function (url, idx) {
+                        var wrap = document.createElement('div');
+                        wrap.className = 'relative flex flex-col items-center';
+                        var img = document.createElement('img');
+                        img.src = url;
+                        img.alt = 'Uploaded image ' + (idx + 1);
+                        img.className = 'w-20 h-20 object-cover rounded-md border border-white/20 hover:border-hologram/50 transition-all';
+                        img.title = url;
+                        wrap.appendChild(img);
+                        var label = document.createElement('span');
+                        label.className = 'mt-1 text-[10px] text-white/60 truncate max-w-[90px]';
+                        label.textContent = 'Image ' + (idx + 1);
+                        wrap.appendChild(label);
+                        preview.appendChild(wrap);
+                    });
+                } else {
+                    preview.classList.add('hidden');
+                }
+            }
+
+            if (feedback) {
+                feedback.classList.remove('hidden');
+                feedback.innerHTML = '<span class="text-ingest-green">Prototype already submitted for this team.</span>';
+                feedback.className = 'mb-3 p-4 rounded-lg border border-ingest-green/50 bg-ingest-green/5 text-xs font-mono';
+            }
+
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.innerHTML = '<span class="material-symbols-outlined text-base">check_circle</span><span class="tracking-wide">SUBMITTED</span>';
+
+            if (proceedBtn) {
+                proceedBtn.disabled = true;
+                proceedBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            if (proceedWrap) {
+                proceedWrap.classList.add('hidden');
+            }
+
+            stage2Submitted = true;
+        }
+
+        applySavedState();
 
         function showUploadStatus() {
             var hasImage = imageInput && imageInput.files && imageInput.files.length > 0;
@@ -166,6 +260,12 @@
         }
 
         btn.addEventListener('click', function () {
+            if (savedState && savedState.submitted) {
+                if (window.UIUtils) {
+                    window.UIUtils.showToast('Prototype already submitted for this team.', 'info', 3000);
+                }
+                return;
+            }
             if (stage2Timer && stage2Timer.getRemaining() <= 0) {
                 if (window.UIUtils) {
                     window.UIUtils.showToast('Time is up. Submission disabled.', 'error', 3000);
@@ -285,7 +385,17 @@
                             feedback.innerHTML = '<span class="text-ingest-green">' + successMsg + '</span>';
                             feedback.className = 'mb-3 p-4 rounded-lg border border-ingest-green/50 bg-ingest-green/5 text-xs font-mono';
                         }
+                        var newState = {
+                            submitted: true,
+                            teamName: teamName,
+                            hostedLink: hostedLink,
+                            gitHubLink: gitHubLink,
+                            uploadedUrls: (result.data && result.data.urls) || []
+                        };
+                        saveStage2State(newState);
+                        savedState = newState;
                         if (stage2Timer) stage2Timer.stop();
+                        applySavedState();
                     } else {
                         var msg = (window.FormUtils && window.FormUtils.parseApiError(result.data, result.status)) || 'Submission failed: ' + result.status;
                         if (window.UIUtils) {
@@ -320,6 +430,7 @@
     }
 
     var stage2Timer = null;
+    var stage2Submitted = false;
 
     function initTimer() {
         var timerWrap = document.getElementById('stage2-timer');
@@ -355,7 +466,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         initTeamBadge();
         initSubmitPrototype();
-        if (window.TimerUtils) {
+        if (window.TimerUtils && !stage2Submitted) {
             initTimer();
         }
         setTimeout(function () {
