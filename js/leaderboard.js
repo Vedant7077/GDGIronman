@@ -34,9 +34,18 @@
 
         if (backLink) backLink.href = route.back;
         if (continueBtn) {
-            continueBtn.href = route.continue;
             var span = continueBtn.querySelector('span:first-child');
-            if (span) span.textContent = 'CONTINUE TO ' + route.label;
+
+            if (from >= 2) {
+                continueBtn.removeAttribute('href');
+                continueBtn.style.pointerEvents = 'none';
+                continueBtn.style.opacity = '0.5';
+                continueBtn.style.cursor = 'default';
+                if (span) span.textContent = 'LOCKED';
+            } else {
+                continueBtn.href = route.continue;
+                if (span) span.textContent = 'CONTINUE TO ' + route.label;
+            }
         }
     }
 

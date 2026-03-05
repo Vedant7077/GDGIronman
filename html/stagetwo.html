@@ -129,10 +129,32 @@
             </h2>
 </div>
 <!-- Description Paragraph -->
-<div class="max-w-2xl mx-auto px-2 md:px-4 mt-2 md:mt-3">
-<p class="text-xs md:text-sm lg:text-base font-light text-gray-300 leading-snug border-l-2 border-primary/20 pl-3 md:pl-4 text-left">
-<span class="text-primary font-medium">Objective:</span> Construct the central interface for the next generation of Iron Legion armor. Candidates must demonstrate proficiency in building interactive web dashboards, mastering real-time data visualization, and optimizing frontend workflows. System integrity is paramount.
-            </p>
+<div class="max-w-2xl mx-auto px-2 md:px-4 mt-2 md:mt-3 text-left space-y-3">
+    <p class="text-xs md:text-sm lg:text-base font-light text-gray-300 leading-snug border-l-2 border-primary/20 pl-3 md:pl-4">
+        <span class="text-primary font-medium">Round 2 Objective:</span>
+        Design the <span class="font-semibold text-white">Arc Reactor Energy Distribution Panel</span> — a control interface that allocates reactor power across critical subsystems while maintaining system stability in real time.
+    </p>
+    <div class="text-[11px] md:text-xs lg:text-sm text-gray-300 space-y-1.5 md:space-y-2">
+        <p class="font-medium text-primary uppercase tracking-[0.18em] text-[10px] md:text-[11px]">Core Task</p>
+        <ul class="list-disc list-inside space-y-1.5 md:space-y-2">
+            <li>Display total available energy (e.g., <span class="font-mono text-white">100</span> units).</li>
+            <li>Show power allocation for multiple subsystems:
+                <span class="font-mono text-white">Propulsion</span>,
+                <span class="font-mono text-white">Defense</span>,
+                <span class="font-mono text-white">Navigation</span>,
+                <span class="font-mono text-white">Communication</span>.
+            </li>
+            <li>Allow users to allocate or reduce power to each subsystem using buttons or input fields.</li>
+            <li>Update remaining energy and subsystem efficiency levels dynamically as allocations change.</li>
+            <li>Implement validation logic that <span class="font-semibold text-red-300">prevents over-allocation</span> beyond the total available energy.</li>
+        </ul>
+        <p class="font-medium text-primary uppercase tracking-[0.18em] text-[10px] md:text-[11px] mt-3">Required Interaction</p>
+        <ul class="list-disc list-inside space-y-1.5 md:space-y-2">
+            <li>Interactive controls (buttons/inputs) to adjust subsystem power levels.</li>
+            <li>Real-time visual update of energy balance and subsystem status.</li>
+            <li>Clear feedback when allocations are invalid or exceed total energy.</li>
+        </ul>
+    </div>
 </div>
 <!-- Mission Protocols List -->
 

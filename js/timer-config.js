@@ -16,19 +16,19 @@
 
     window.TIMER_CONFIG = {
         // Stage 1 (Editor) - Competitive Programming
-        STAGE_1_DURATION: 300, // 5 minutes
+        STAGE_1_DURATION: 3600, // 60 minutes
         
         // Stage 2 (Website) - Web Development
-        STAGE_2_DURATION: 300, // 5 minutes
+        STAGE_2_DURATION: 3600, // 60 minutes
         
         // Stage 3 (Design) - UI/UX Design
-        STAGE_3_DURATION: 300, // 5 minutes
+        STAGE_3_DURATION: 3600, // 60 minutes
         
         // Stage 4 (Logic) - Logic & Decision Making
-        STAGE_4_DURATION: 300, // 5 minutes
+        STAGE_4_DURATION: 3600, // 60 minutes
         
         // Stage 5 (Presentation) - Presentation
-        STAGE_5_DURATION: 300, // 5 minutes
+        STAGE_5_DURATION: 3600, // 60 minutes
         
         // Enable/disable timer warnings
         SHOW_WARNING_AT: 30, // Show warning when X seconds remaining
